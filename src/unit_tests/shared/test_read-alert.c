@@ -525,10 +525,87 @@ static void test_GetAlertData_ex_slot_long_header_line(void **state) {
     os_free(input);
 }
 
+static void assert_log_has_no_user_line(alert_data *al_data) {
+    assert_non_null(al_data->log);
+    for (char **line = al_data->log; *line; line++) {
+        assert_null(strstr(*line, "User: "));
+    }
+}
+
+static void test_GetAlertData_src_user_and_user(void **state) {
+    (void) state;
+
+    const char input[] =
+        "** Alert 1793500000.1: - syslog,sshd,\n"
+        "2026 Nov 24 10:00:00 host->/var/log/secure\n"
+        "Rule: 5715 (level 3) -> 'sshd: authentication success.'\n"
+        "Src IP: 10.0.0.5\n"
+        "Src User: bob\n"
+        "User: alice\n"
+        "Nov 24 10:00:00 host sshd[1]: log line\n"
+        "\n";
+
+    alert_data *al_data = parse_alert_from_string(input);
+
+    assert_non_null(al_data);
+    assert_string_equal(al_data->srcip, "10.0.0.5");
+    assert_string_equal(al_data->srcuser, "bob");
+    assert_string_equal(al_data->user, "alice");
+    assert_string_equal(al_data->log[0], "Nov 24 10:00:00 host sshd[1]: log line");
+    assert_log_has_no_user_line(al_data);
+
+    FreeAlertData(al_data);
+}
+
+static void test_GetAlertData_src_user_only(void **state) {
+    (void) state;
+
+    const char input[] =
+        "** Alert 1793500000.1: - syslog,sshd,\n"
+        "2026 Nov 24 10:00:00 host->/var/log/secure\n"
+        "Rule: 5710 (level 5) -> 'sshd: Attempt to login using a non-existent user'\n"
+        "Src User: bob\n"
+        "log line\n"
+        "\n";
+
+    alert_data *al_data = parse_alert_from_string(input);
+
+    assert_non_null(al_data);
+    assert_string_equal(al_data->srcuser, "bob");
+    assert_null(al_data->user);
+    assert_string_equal(al_data->log[0], "log line");
+    assert_log_has_no_user_line(al_data);
+
+    FreeAlertData(al_data);
+}
+
+static void test_GetAlertData_user_only_unchanged(void **state) {
+    (void) state;
+
+    const char input[] =
+        "** Alert 1793500000.1: - syslog,sshd,\n"
+        "2026 Nov 24 10:00:00 host->/var/log/secure\n"
+        "Rule: 5715 (level 3) -> 'sshd: authentication success.'\n"
+        "User: alice\n"
+        "log line\n"
+        "\n";
+
+    alert_data *al_data = parse_alert_from_string(input);
+
+    assert_non_null(al_data);
+    assert_null(al_data->srcuser);
+    assert_string_equal(al_data->user, "alice");
+
+    FreeAlertData(al_data);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_GetAlertData_buffer_underflow_fix_empty_filename),
         cmocka_unit_test(test_GetAlertData_valid_filename),
+        cmocka_unit_test(test_GetAlertData_src_user_and_user),
+        cmocka_unit_test(test_GetAlertData_src_user_only),
+        cmocka_unit_test(test_GetAlertData_user_only_unchanged),
         cmocka_unit_test(test_GetAlertData_filename_with_spaces),
         cmocka_unit_test(test_GetAlertData_filename_windows_crlf),
         cmocka_unit_test(test_GetAlertData_header_without_log_is_skipped),

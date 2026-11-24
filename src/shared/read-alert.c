@@ -35,6 +35,8 @@
 #define DSTIP_BEGIN_SZ  8
 #define DSTPORT_BEGIN     "Dst Port: "
 #define DSTPORT_BEGIN_SZ  10
+#define SRCUSER_BEGIN   "Src User: "
+#define SRCUSER_BEGIN_SZ 10
 #define USER_BEGIN      "User: "
 #define USER_BEGIN_SZ   6
 #define ALERT_MAIL      "mail"
@@ -76,6 +78,7 @@ void FreeAlertData(alert_data *al_data) {
     os_free(al_data->group);
     os_free(al_data->srcip);
     os_free(al_data->dstip);
+    os_free(al_data->srcuser);
     os_free(al_data->user);
     os_free(al_data->filename);
     os_free(al_data->old_md5);
@@ -317,6 +320,14 @@ alert_data *GetAlertData_ex(int flag, FILE *fp, char **pending) {
 
                 p = str + SRCPORT_BEGIN_SZ;
                 al_data->srcport = atoi(p);
+            }
+            /* source username */
+            else if (strncmp(SRCUSER_BEGIN, str, SRCUSER_BEGIN_SZ) == 0) {
+                os_clearnl(str, p);
+
+                p = str + SRCUSER_BEGIN_SZ;
+                os_free(al_data->srcuser);
+                os_strdup(p, al_data->srcuser);
             }
             /* dstip */
             else if (strncmp(DSTIP_BEGIN, str, DSTIP_BEGIN_SZ) == 0) {
