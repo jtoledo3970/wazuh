@@ -25,6 +25,7 @@
 #include "syscollectorNormalizer.hpp"
 #include "syscollector.h"
 #include "syscollector_defs.hpp"
+#include "containerFreshness.hpp"
 #include "asyncFlushController.hpp"
 #include "agent_sync_protocol_types.hpp"
 #include "iagent_sync_protocol.hpp"
@@ -212,6 +213,21 @@ class EXPORTED Syscollector final
         /// nothing new. Linux only.
         void requestContainerRefresh(const std::vector<std::string>& containerIds);
 
+        /// A file event inside a container, by process `pid` at `timestampNs`
+        /// since boot. On a package lock, the process becomes a holder: the
+        /// control thread hands the container to the scan thread once the
+        /// holder that started the transaction exits. Never waits on a scan.
+        void noteContainerFileEvent(const std::string& containerId, const std::string& path, int pid,
+                                    std::uint64_t timestampNs);
+
+        /// A container's events may have been lost, so it is refreshed without
+        /// waiting for any holder, and once more a little later.
+        void noteContainerChanged(const std::string& containerId);
+
+        /// Which containers may report. Marks for any other container are
+        /// dropped instead of refreshed. Until called, every container counts.
+        void setFreshnessAdmission(std::set<std::string> admitted);
+
         // Mutex access for external synchronization (e.g., from wm_sync_module)
         void lockScanMutex();
         void unlockScanMutex();
@@ -391,6 +407,11 @@ class EXPORTED Syscollector final
         std::vector<std::string> takeRefreshPending();
         /// Puts back requests a pass that did not run was handed.
         void restoreRefreshPending(const std::vector<std::string>& containerIds);
+        /// Hands the containers due at `now` to the scan thread.
+        void freshnessTick(LockHolders::Clock::time_point now);
+        /// Runs freshnessTick() every m_freshnessBusyTick while a lock has
+        /// holders, else every m_freshnessIdleTick, until m_stopping.
+        void freshnessLoop();
         void syncLoop(std::unique_lock<std::mutex>& scan_lock);
         bool pause();
         void resume();
@@ -948,6 +969,21 @@ class EXPORTED Syscollector final
         std::set<std::string>                                                    m_refreshPending;
         std::mutex                                                               m_refreshMutex;
         std::atomic<bool>                                                        m_refreshRequested;
+        // The freshness control thread's state, all under m_freshnessMutex:
+        // whether package changes are detected, each container's lock holders,
+        // which containers may report (unset: all of them), and a wake-up for
+        // a new holder or mark.
+        std::mutex                                                               m_freshnessMutex;
+        std::condition_variable                                                  m_freshnessCv;
+        bool                                                                     m_freshnessEnabled;
+        LockHolders                                                              m_lockHolders;
+        std::optional<std::set<std::string>>                                     m_freshnessAdmission;
+        bool                                                                     m_freshnessWake;
+        LockHolders::Clock::duration                                             m_freshnessBusyTick;
+        LockHolders::Clock::duration                                             m_freshnessIdleTick;
+        // Reads a process's /proc stat; unit tests replace it.
+        std::function<std::optional<ProcStat>(int)>                              m_processStat;
+        std::thread                                                              m_freshnessThread;
         // Blocks on the notification socket. Started only when the container
         // baseline is enabled: with it off there is nothing to bring forward.
         std::thread                                                              m_containerNotifyThread;
