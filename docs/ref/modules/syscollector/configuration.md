@@ -209,6 +209,33 @@ How often every container is inventoried, independent of the wodle's `interval`.
 </container_security>
 ```
 
+### Package changes inside a container
+
+When container inventory and `<packages>` are both enabled, installing,
+upgrading or removing a package inside a container refreshes that container's
+inventory without waiting for the `interval`. A package manager locks its
+database while it writes it (dpkg and apt, apk, and rpm with dnf, yum and
+microdnf), and the container is refreshed as soon as the package manager that
+took the lock exits; the helpers it runs, such as apt's `dpkg` runs, do not
+count. Each transaction is read once it is complete and its changes are
+reported right away, including each install in a script that runs several in
+a row, and a process that keeps a lock open holds back no other install.
+Read-only queries (`dpkg -l`, `rpm -q`, `apk info`) take no lock and cause no
+refresh. The new inventory state reaches the indexer on the next
+synchronization cycle.
+
+Images without a package manager, which list their packages under
+`/var/lib/dpkg/status.d`, are inventoried but not watched: nothing inside such a
+container can change that list.
+
+Lock use is detected with eBPF and is Linux only. When the eBPF engine cannot
+be used, this is logged once and container inventory keeps its `interval` and
+the Container Instances notifications:
+
+```
+INFO: Container inventory: eBPF change detection is not available (<reason>); container changes are picked up by the periodic pass.
+```
+
 ---
 
 ## Synchronization Configuration
